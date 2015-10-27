@@ -3,6 +3,7 @@ package v1p20
 
 import (
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/versions/v1p21"
 	"github.com/docker/docker/pkg/nat"
 	"github.com/docker/docker/runconfig"
 )
@@ -10,8 +11,9 @@ import (
 // ContainerJSON is a backcompatibility struct for the API 1.20
 type ContainerJSON struct {
 	*types.ContainerJSONBase
-	Mounts []types.MountPoint
-	Config *ContainerConfig
+	Mounts          []types.MountPoint
+	Config          *ContainerConfig
+	NetworkSettings *v1p21.NetworkSettings
 }
 
 // ContainerConfig is a backcompatibility struct used in ContainerJSON for the API 1.20

@@ -6,6 +6,8 @@ import (
 
 	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/versions/v1p20"
+	"github.com/docker/docker/api/types/versions/v1p21"
+	"github.com/docker/docker/daemon/network"
 )
 
 // ContainerInspect returns low-level information about a
@@ -27,7 +29,28 @@ func (daemon *Daemon) ContainerInspect(name string, size bool) (*types.Container
 
 	mountPoints := addMountPoints(container)
 
-	return &types.ContainerJSON{base, mountPoints, container.Config}, nil
+	return &types.ContainerJSON{base, mountPoints, container.Config, container.NetworkSettings}, nil
+}
+
+// ContainerInspect121 serializes the master version of a container into a json type.
+func (daemon *Daemon) ContainerInspect121(name string, size bool) (*v1p21.ContainerJSON, error) {
+	container, err := daemon.Get(name)
+	if err != nil {
+		return nil, err
+	}
+
+	container.Lock()
+	defer container.Unlock()
+
+	base, err := daemon.getInspectData(container, size)
+	if err != nil {
+		return nil, err
+	}
+
+	mountPoints := addMountPoints(container)
+	networkSettings := getBackwardCompatibleNetworkSettings(container.NetworkSettings)
+
+	return &v1p21.ContainerJSON{base, mountPoints, container.Config, networkSettings}, nil
 }
 
 // ContainerInspect120 serializes the master version of a container into a json type.
@@ -53,8 +76,9 @@ func (daemon *Daemon) ContainerInspect120(name string) (*v1p20.ContainerJSON, er
 		container.Config.ExposedPorts,
 		container.hostConfig.VolumeDriver,
 	}
+	networkSettings := getBackwardCompatibleNetworkSettings(container.NetworkSettings)
 
-	return &v1p20.ContainerJSON{base, mountPoints, config}, nil
+	return &v1p20.ContainerJSON{base, mountPoints, config, networkSettings}, nil
 }
 
 func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.ContainerJSONBase, error) {
@@ -91,22 +115,21 @@ func (daemon *Daemon) getInspectData(container *Container, size bool) (*types.Co
 	}
 
 	contJSONBase := &types.ContainerJSONBase{
-		ID:              container.ID,
-		Created:         container.Created.Format(time.RFC3339Nano),
-		Path:            container.Path,
-		Args:            container.Args,
-		State:           containerState,
-		Image:           container.ImageID,
-		NetworkSettings: container.NetworkSettings,
-		LogPath:         container.LogPath,
-		Name:            container.Name,
-		RestartCount:    container.RestartCount,
-		Driver:          container.Driver,
-		ExecDriver:      container.ExecDriver,
-		MountLabel:      container.MountLabel,
-		ProcessLabel:    container.ProcessLabel,
-		ExecIDs:         container.getExecIDs(),
-		HostConfig:      &hostConfig,
+		ID:           container.ID,
+		Created:      container.Created.Format(time.RFC3339Nano),
+		Path:         container.Path,
+		Args:         container.Args,
+		State:        containerState,
+		Image:        container.ImageID,
+		LogPath:      container.LogPath,
+		Name:         container.Name,
+		RestartCount: container.RestartCount,
+		Driver:       container.Driver,
+		ExecDriver:   container.ExecDriver,
+		MountLabel:   container.MountLabel,
+		ProcessLabel: container.ProcessLabel,
+		ExecIDs:      container.getExecIDs(),
+		HostConfig:   &hostConfig,
 	}
 
 	var (
@@ -150,4 +173,9 @@ func (daemon *Daemon) VolumeInspect(name string) (*types.Volume, error) {
 		return nil, err
 	}
 	return volumeToAPIType(v), nil
+}
+
+func getBackwardsCompatibleNetworkSettings(settings *network.Settings) *v1p21.NetworkSettings {
+	// FIXME
+	return nil
 }

@@ -648,6 +648,9 @@ func (container *Container) buildEndpointInfo(n libnetwork.Network, ep libnetwor
 		return networkSettings, nil
 	}
 
+	if _, ok := networkSettings.Networks[n.Name()]; !ok {
+		networkSettings.Networks[n.Name()] = new(network.Settings)
+	}
 	networkSettings.Networks[n.Name()].EndpointID = ep.ID()
 
 	iface := epInfo.Iface()
@@ -655,25 +658,14 @@ func (container *Container) buildEndpointInfo(n libnetwork.Network, ep libnetwor
 		return networkSettings, nil
 	}
 
-	if networkSettings.EndpointID == "" {
-		networkSettings.EndpointID = ep.ID()
-	}
 	if iface.Address() != nil {
 		ones, _ := iface.Address().Mask.Size()
-		if networkSettings.IPAddress == "" || networkSettings.IPPrefixLen == 0 {
-			networkSettings.IPAddress = iface.Address().IP.String()
-			networkSettings.IPPrefixLen = ones
-		}
 		networkSettings.Networks[n.Name()].IPAddress = iface.Address().IP.String()
 		networkSettings.Networks[n.Name()].IPPrefixLen = ones
 	}
 
 	if iface.AddressIPv6() != nil && iface.AddressIPv6().IP.To16() != nil {
 		onesv6, _ := iface.AddressIPv6().Mask.Size()
-		if networkSettings.GlobalIPv6Address == "" || networkSettings.GlobalIPv6PrefixLen == 0 {
-			networkSettings.GlobalIPv6Address = iface.AddressIPv6().IP.String()
-			networkSettings.GlobalIPv6PrefixLen = onesv6
-		}
 		networkSettings.Networks[n.Name()].GlobalIPv6Address = iface.AddressIPv6().IP.String()
 		networkSettings.Networks[n.Name()].GlobalIPv6PrefixLen = onesv6
 	}
@@ -688,9 +680,6 @@ func (container *Container) buildEndpointInfo(n libnetwork.Network, ep libnetwor
 		return networkSettings, nil
 	}
 	if mac, ok := driverInfo[netlabel.MacAddress]; ok {
-		if networkSettings.MacAddress == "" {
-			networkSettings.MacAddress = mac.(net.HardwareAddr).String()
-		}
 		networkSettings.Networks[n.Name()].MacAddress = mac.(net.HardwareAddr).String()
 	}
 
@@ -703,14 +692,8 @@ func (container *Container) updateJoinInfo(n libnetwork.Network, ep libnetwork.E
 		// It is not an error to get an empty endpoint info
 		return nil
 	}
-	if container.NetworkSettings.Gateway == "" {
-		container.NetworkSettings.Gateway = epInfo.Gateway().String()
-	}
 	container.NetworkSettings.Networks[n.Name()].Gateway = epInfo.Gateway().String()
 	if epInfo.GatewayIPv6().To16() != nil {
-		if container.NetworkSettings.IPv6Gateway == "" {
-			container.NetworkSettings.IPv6Gateway = epInfo.GatewayIPv6().String()
-		}
 		container.NetworkSettings.Networks[n.Name()].IPv6Gateway = epInfo.GatewayIPv6().String()
 	}
 
@@ -1216,17 +1199,6 @@ func (container *Container) disconnectFromNetwork(n libnetwork.Network) error {
 		return fmt.Errorf("endpoint delete failed for container %s on network %s: %v", container.ID, n.Name(), err)
 	}
 
-	if container.NetworkSettings.EndpointID == container.NetworkSettings.Networks[n.Name()].EndpointID {
-		container.NetworkSettings.EndpointID = ""
-		container.NetworkSettings.Gateway = ""
-		container.NetworkSettings.GlobalIPv6Address = ""
-		container.NetworkSettings.GlobalIPv6PrefixLen = 0
-		container.NetworkSettings.IPAddress = ""
-		container.NetworkSettings.IPPrefixLen = 0
-		container.NetworkSettings.IPv6Gateway = ""
-		container.NetworkSettings.MacAddress = ""
-
-	}
 	delete(container.NetworkSettings.Networks, n.Name())
 	return nil
 }
