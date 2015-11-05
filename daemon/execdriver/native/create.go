@@ -287,19 +287,11 @@ func (d *Driver) setupMounts(container *configs.Config, c *execdriver.Command) e
 	container.Mounts = defaultMounts
 
 	for _, m := range c.Mounts {
-		flags := syscall.MS_BIND | syscall.MS_REC
-		if !m.Writable {
-			flags |= syscall.MS_RDONLY
-		}
-		if m.Slave {
-			flags |= syscall.MS_SLAVE
-		}
-
 		container.Mounts = append(container.Mounts, &configs.Mount{
 			Source:      m.Source,
 			Destination: m.Destination,
-			Device:      "bind",
-			Flags:       flags,
+			Device:      m.Device,
+			Flags:       m.Flags,
 		})
 	}
 	return nil

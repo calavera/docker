@@ -14,6 +14,7 @@ import (
 	"github.com/docker/docker/pkg/chrootarchive"
 	"github.com/docker/docker/pkg/system"
 	"github.com/docker/docker/volume"
+	"github.com/docker/docker/volume/bind"
 	volumedrivers "github.com/docker/docker/volume/drivers"
 	"github.com/docker/docker/volume/local"
 )
@@ -61,16 +62,20 @@ func copyOwnership(source, destination string) error {
 func (daemon *Daemon) setupMounts(container *Container) ([]execdriver.Mount, error) {
 	var mounts []execdriver.Mount
 	for _, m := range container.MountPoints {
-		path, err := m.Setup()
+		opts, err := m.Setup()
 		if err != nil {
 			return nil, err
 		}
 		if !container.trySetNetworkMount(m.Destination, path) {
-			mounts = append(mounts, execdriver.Mount{
-				Source:      path,
+			mount := execdriver.Mount{
+				Source:      opts.Source,
 				Destination: m.Destination,
-				Writable:    m.RW,
-			})
+				Device:      opts.Device,
+				Data:        opts.Data,
+				Flags:       m.Flags(),
+			}
+
+			mounts = append(mounts, mount)
 		}
 	}
 
@@ -123,7 +128,7 @@ func migrateVolume(id, vfs string) error {
 // validVolumeLayout checks whether the volume directory layout
 // is valid to work with Docker post 1.7 or not.
 func validVolumeLayout(files []os.FileInfo) bool {
-	if len(files) == 1 && files[0].Name() == local.VolumeDataPathName && files[0].IsDir() {
+	if len(files) == 1 && files[0].Name() == bind.VolumeDataPathName && files[0].IsDir() {
 		return true
 	}
 
@@ -133,7 +138,7 @@ func validVolumeLayout(files []os.FileInfo) bool {
 
 	for _, f := range files {
 		if f.Name() == "config.json" ||
-			(f.Name() == local.VolumeDataPathName && f.Mode()&os.ModeSymlink == os.ModeSymlink) {
+			(f.Name() == bind.VolumeDataPathName && f.Mode()&os.ModeSymlink == os.ModeSymlink) {
 			// Old volume configuration, we ignore it
 			continue
 		}

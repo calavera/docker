@@ -13,8 +13,8 @@ import (
 	"github.com/docker/docker/pkg/truncindex"
 	"github.com/docker/docker/runconfig"
 	"github.com/docker/docker/volume"
+	"github.com/docker/docker/volume/bind"
 	volumedrivers "github.com/docker/docker/volume/drivers"
-	"github.com/docker/docker/volume/local"
 	"github.com/docker/docker/volume/store"
 )
 
@@ -219,7 +219,7 @@ func TestLoadWithVolume(t *testing.T) {
 		t.Fatalf("Expected mount driver local, was %s\n", m.Driver)
 	}
 
-	newVolumeContent := filepath.Join(volumePath, local.VolumeDataPathName, "helo")
+	newVolumeContent := filepath.Join(volumePath, bind.VolumeDataPathName, "helo")
 	b, err := ioutil.ReadFile(newVolumeContent)
 	if err != nil {
 		t.Fatal(err)
@@ -398,7 +398,7 @@ func TestLoadWithVolume17RC(t *testing.T) {
 		t.Fatalf("Expected mount driver local, was %s\n", m.Driver)
 	}
 
-	newVolumeContent := filepath.Join(volumePath, local.VolumeDataPathName, "helo")
+	newVolumeContent := filepath.Join(volumePath, bind.VolumeDataPathName, "helo")
 	b, err := ioutil.ReadFile(newVolumeContent)
 	if err != nil {
 		t.Fatal(err)
@@ -509,7 +509,7 @@ func initDaemonWithVolumeStore(tmp string) (*Daemon, error) {
 		volumes:    store.New(),
 	}
 
-	volumesDriver, err := local.New(tmp, 0, 0)
+	volumesDriver, err := bind.New(tmp, 0, 0)
 	if err != nil {
 		return nil, err
 	}

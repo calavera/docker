@@ -526,21 +526,23 @@ func (daemon *Daemon) mountVolumes(container *Container) error {
 			return err
 		}
 
-		var stat os.FileInfo
-		stat, err = os.Stat(m.Source)
-		if err != nil {
-			return err
-		}
-		if err = fileutils.CreateIfNotExists(dest, stat.IsDir()); err != nil {
-			return err
+		if filepath.IsAbs(m.Source) {
+			var stat os.FileInfo
+			stat, err = os.Stat(m.Source)
+			if err != nil {
+				return err
+			}
+			if err = fileutils.CreateIfNotExists(dest, stat.IsDir()); err != nil {
+				return err
+			}
 		}
 
 		opts := "rbind,ro"
-		if m.Writable {
+		if m.Flags&syscall.MS_RDONLY == 0 {
 			opts = "rbind,rw"
 		}
 
-		if err := mount.Mount(m.Source, dest, "bind", opts); err != nil {
+		if err := mount.Mount(m.Source, dest, m.Device, opts); err != nil {
 			return err
 		}
 	}

@@ -4,6 +4,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"syscall"
 
 	"github.com/Sirupsen/logrus"
 	derr "github.com/docker/docker/errors"
@@ -32,11 +33,14 @@ type Volume interface {
 	DriverName() string
 	// Path returns the absolute path to the volume.
 	Path() string
-	// Mount mounts the volume and returns the absolute path to
-	// where it can be consumed.
-	Mount() (string, error)
+	// Options gives you the mount options for the exec driver.
+	Options() (MountOpts, error)
 	// Unmount unmounts the volume when it is no longer in use.
 	Unmount() error
+}
+
+type flagger interface {
+	Flags() int
 }
 
 // MountPoint is the intersection point between a volume and a container. It
@@ -54,27 +58,38 @@ type MountPoint struct {
 	Mode string `json:"Relabel"` // Originally field was `Relabel`"
 }
 
+// MountOpts holds optional information for mount points.
+// This information is usually calculated internally by each volume driver.
+type MountOpts struct {
+	Source string
+	Device string
+	Data   string
+}
+
 // Setup sets up a mount point by either mounting the volume if it is
 // configured, or creating the source directory if supplied.
-func (m *MountPoint) Setup() (string, error) {
+func (m *MountPoint) Setup() (MountOpts, error) {
 	if m.Volume != nil {
-		return m.Volume.Mount()
+		return m.Volume.Options()
 	}
 	if len(m.Source) > 0 {
 		if _, err := os.Stat(m.Source); err != nil {
 			if !os.IsNotExist(err) {
-				return "", err
+				return MountOpts{}, err
 			}
 			if runtime.GOOS != "windows" { // Windows does not have deprecation issues here
 				logrus.Warnf("Auto-creating non-existant volume host path %s, this is deprecated and will be removed soon", m.Source)
 				if err := system.MkdirAll(m.Source, 0755); err != nil {
-					return "", err
+					return MountOpts{}, err
 				}
 			}
 		}
-		return m.Source, nil
+		return MountOpts{
+			Source: m.Source,
+			Device: "bind",
+		}, nil
 	}
-	return "", derr.ErrorCodeMountSetup
+	return MountOpts{}, derr.ErrorCodeMountSetup
 }
 
 // Path returns the path of a volume in a mount point.
@@ -83,6 +98,19 @@ func (m *MountPoint) Path() string {
 		return m.Volume.Path()
 	}
 	return m.Source
+}
+
+func (m *MountPoint) Flags() int {
+	if m.Volume != nil {
+		if fv, ok := m.Volume.(flagger); ok {
+			return fv.Flags()
+		}
+	}
+	flags := syscall.MS_BIND | syscall.MS_REC
+	if !m.RW {
+		flags |= syscall.MS_RDONLY
+	}
+	return flags
 }
 
 // ValidMountMode will make sure the mount mode is valid.

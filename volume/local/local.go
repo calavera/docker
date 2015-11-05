@@ -17,14 +17,6 @@ import (
 	"github.com/docker/docker/volume"
 )
 
-// VolumeDataPathName is the name of the directory where the volume data is stored.
-// It uses a very distintive name to avoid collisions migrating data between
-// Docker versions.
-const (
-	VolumeDataPathName = "_data"
-	volumesPathName    = "volumes"
-)
-
 var (
 	// ErrNotFound is the typed error returned when the requested volume name can't be found
 	ErrNotFound = errors.New("volume not found")
@@ -34,11 +26,20 @@ var (
 	volumeNameRegex = utils.RestrictedNamePattern
 )
 
-// New instantiates a new Root instance with the provided scope. Scope
+type volumeFactory func(name, volumePath, driverName string, options map[string]string) Volume
+
+type Volume interface {
+	// Init initializes the volume for the container root user.
+	Init(rootUID, rootGID int) error
+	// RealPath is the absolute path or the volume in the host.
+	RealPath() (string, error)
+}
+
+// NewVolumeRoot instantiates a new Root instance with the provided scope. Scope
 // is the base path that the Root instance uses to store its
 // volumes. The base path is created here if it does not exist.
-func New(scope string, rootUID, rootGID int) (*Root, error) {
-	rootDirectory := filepath.Join(scope, volumesPathName)
+func NewVolumeRoot(scope, name, base string, rootUID, rootGID int, factory volumeFactory) (*Root, error) {
+	rootDirectory := filepath.Join(scope, base)
 
 	if err := idtools.MkdirAllAs(rootDirectory, 0700, rootUID, rootGID); err != nil {
 		return nil, err
@@ -46,10 +47,12 @@ func New(scope string, rootUID, rootGID int) (*Root, error) {
 
 	r := &Root{
 		scope:   scope,
+		name:    name,
 		path:    rootDirectory,
-		volumes: make(map[string]*localVolume),
+		volumes: make(map[string]Volume),
 		rootUID: rootUID,
 		rootGID: rootGID,
+		factory: factory,
 	}
 
 	dirs, err := ioutil.ReadDir(rootDirectory)
@@ -57,13 +60,10 @@ func New(scope string, rootUID, rootGID int) (*Root, error) {
 		return nil, err
 	}
 
+	opts := map[string]string{}
 	for _, d := range dirs {
 		name := filepath.Base(d.Name())
-		r.volumes[name] = &localVolume{
-			driverName: r.Name(),
-			name:       name,
-			path:       r.DataPath(name),
-		}
+		r.volumes[name] = factory(name, r.path, r.Name(), opts)
 	}
 
 	return r, nil
@@ -74,36 +74,34 @@ func New(scope string, rootUID, rootGID int) (*Root, error) {
 // commands to create/remove dirs within its provided scope.
 type Root struct {
 	m       sync.Mutex
+	name    string
 	scope   string
 	path    string
-	volumes map[string]*localVolume
+	volumes map[string]Volume
 	rootUID int
 	rootGID int
+	factory volumeFactory
 }
 
 // List lists all the volumes
 func (r *Root) List() []volume.Volume {
 	var ls []volume.Volume
 	for _, v := range r.volumes {
-		ls = append(ls, v)
+		lv, _ := validVolume(v)
+		ls = append(ls, lv)
 	}
 	return ls
 }
 
-// DataPath returns the constructed path of this volume.
-func (r *Root) DataPath(volumeName string) string {
-	return filepath.Join(r.path, volumeName, VolumeDataPathName)
-}
-
 // Name returns the name of Root, defined in the volume package in the DefaultDriverName constant.
 func (r *Root) Name() string {
-	return volume.DefaultDriverName
+	return r.name
 }
 
 // Create creates a new volume.Volume with the provided name, creating
 // the underlying directory tree required for this volume in the
 // process.
-func (r *Root) Create(name string, _ map[string]string) (volume.Volume, error) {
+func (r *Root) Create(name string, options map[string]string) (volume.Volume, error) {
 	if err := r.validateName(name); err != nil {
 		return nil, err
 	}
@@ -113,23 +111,16 @@ func (r *Root) Create(name string, _ map[string]string) (volume.Volume, error) {
 
 	v, exists := r.volumes[name]
 	if exists {
-		return v, nil
+		return validVolume(v)
 	}
 
-	path := r.DataPath(name)
-	if err := idtools.MkdirAllAs(path, 0755, r.rootUID, r.rootGID); err != nil {
-		if os.IsExist(err) {
-			return nil, fmt.Errorf("volume already exists under %s", filepath.Dir(path))
-		}
+	v = r.factory(name, r.path, r.Name(), options)
+	if err := v.Init(r.rootUID, r.rootGID); err != nil {
 		return nil, err
 	}
-	v = &localVolume{
-		driverName: r.Name(),
-		name:       name,
-		path:       path,
-	}
+
 	r.volumes[name] = v
-	return v, nil
+	return validVolume(v)
 }
 
 // Remove removes the specified volume and all underlying data. If the
@@ -140,17 +131,14 @@ func (r *Root) Remove(v volume.Volume) error {
 	r.m.Lock()
 	defer r.m.Unlock()
 
-	lv, ok := v.(*localVolume)
+	lv, ok := v.(Volume)
 	if !ok {
 		return errors.New("unknown volume type")
 	}
 
-	realPath, err := filepath.EvalSymlinks(lv.path)
+	realPath, err := lv.RealPath()
 	if err != nil {
-		if !os.IsNotExist(err) {
-			return err
-		}
-		realPath = filepath.Dir(lv.path)
+		return err
 	}
 
 	if !r.scopedPath(realPath) {
@@ -161,8 +149,8 @@ func (r *Root) Remove(v volume.Volume) error {
 		return err
 	}
 
-	delete(r.volumes, lv.name)
-	return removePath(filepath.Dir(lv.path))
+	delete(r.volumes, v.Name())
+	return removePath(filepath.Dir(v.Path()))
 }
 
 func removePath(path string) error {
@@ -183,7 +171,7 @@ func (r *Root) Get(name string) (volume.Volume, error) {
 	if !exists {
 		return nil, ErrNotFound
 	}
-	return v, nil
+	return validVolume(v)
 }
 
 func (r *Root) validateName(name string) error {
@@ -193,40 +181,10 @@ func (r *Root) validateName(name string) error {
 	return nil
 }
 
-// localVolume implements the Volume interface from the volume package and
-// represents the volumes created by Root.
-type localVolume struct {
-	m         sync.Mutex
-	usedCount int
-	// unique name of the volume
-	name string
-	// path is the path on the host where the data lives
-	path string
-	// driverName is the name of the driver that created the volume.
-	driverName string
-}
-
-// Name returns the name of the given Volume.
-func (v *localVolume) Name() string {
-	return v.name
-}
-
-// DriverName returns the driver that created the given Volume.
-func (v *localVolume) DriverName() string {
-	return v.driverName
-}
-
-// Path returns the data location.
-func (v *localVolume) Path() string {
-	return v.path
-}
-
-// Mount implements the localVolume interface, returning the data location.
-func (v *localVolume) Mount() (string, error) {
-	return v.path, nil
-}
-
-// Umount is for satisfying the localVolume interface and does not do anything in this driver.
-func (v *localVolume) Unmount() error {
-	return nil
+func validVolume(v Volume) (volume.Volume, error) {
+	vv, ok := v.(volume.Volume)
+	if !ok {
+		return nil, fmt.Errorf("%v does not implement the Volume interface", v)
+	}
+	return vv, nil
 }

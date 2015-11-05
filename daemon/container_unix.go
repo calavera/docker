@@ -1250,8 +1250,9 @@ func (container *Container) networkMounts() []execdriver.Mount {
 			mounts = append(mounts, execdriver.Mount{
 				Source:      container.ResolvConfPath,
 				Destination: "/etc/resolv.conf",
-				Writable:    writable,
 				Private:     true,
+				Flags:       m.Flags(),
+				Device:      "bind",
 			})
 		}
 	}

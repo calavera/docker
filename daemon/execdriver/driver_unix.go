@@ -24,9 +24,9 @@ import (
 type Mount struct {
 	Source      string `json:"source"`
 	Destination string `json:"destination"`
-	Writable    bool   `json:"writable"`
+	Device      string `json:"device"`
 	Private     bool   `json:"private"`
-	Slave       bool   `json:"slave"`
+	Flags       int    `json:"flags"`
 }
 
 // Resources contains all resource configs for a driver.

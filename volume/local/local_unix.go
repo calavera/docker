@@ -16,12 +16,13 @@ var oldVfsDir = filepath.Join("vfs", "dir")
 // is under Docker's root and the valid local paths.
 func (r *Root) scopedPath(realPath string) bool {
 	// Volumes path for Docker version >= 1.7
-	if strings.HasPrefix(realPath, filepath.Join(r.scope, volumesPathName)) && realPath != filepath.Join(r.scope, volumesPathName) {
+	if strings.HasPrefix(realPath, r.path) && realPath != r.path {
 		return true
 	}
 
 	// Volumes path for Docker version < 1.7
-	if strings.HasPrefix(realPath, filepath.Join(r.scope, oldVfsDir)) {
+	rootBase := filepath.Dir(r.path)
+	if strings.HasPrefix(realPath, filepath.Join(rootBase, oldVfsDir)) {
 		return true
 	}
 

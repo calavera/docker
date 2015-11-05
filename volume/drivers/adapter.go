@@ -54,10 +54,16 @@ func (a *volumeAdapter) Path() string {
 	return m
 }
 
-func (a *volumeAdapter) Mount() (string, error) {
+func (a *volumeAdapter) Options() (volume.MountOpts, error) {
 	var err error
 	a.eMount, err = a.proxy.Mount(a.name)
-	return a.eMount, err
+	if err != nil {
+		return volume.MountOpts{}, err
+	}
+	return volume.MountOpts{
+		Source: a.eMount,
+		Device: "bind",
+	}, nil
 }
 
 func (a *volumeAdapter) Unmount() error {
